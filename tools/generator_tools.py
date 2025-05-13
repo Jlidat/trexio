@@ -48,7 +48,8 @@ def get_files_todo(source_files: dict) -> dict:
     # files that correspond to iterative population (e.g. the code is repeated within the function body but the function itself is unique)
     files_todo['auxiliary'] = [
         'def_hdf5.c', 'basic_hdf5.c', 'struct_hdf5.h',
-        'basic_text_group.c', 'struct_text_group.h'
+        'basic_text_group.c', 'struct_text_group.h', 
+        'basic_s3_group.c', 'struct_s3_group.h'
     ]
 
     return files_todo
@@ -224,6 +225,7 @@ def iterative_populate_file (filename: str, paths: dict, detailed_all: dict) -> 
                     None
     """
     add_trigger = 'rc = trexio_text_free_$group$'
+    add_trigger_s3 = 'rc = trexio_s3_free_$group$'
     triggers = [add_trigger, '$group_dset$', '$group_num$', '$group_str$', '$group$']
 
     templ_path = get_template_path(filename, paths)

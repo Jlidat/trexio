@@ -27,7 +27,7 @@ check_dim_consistency(detailed_nums, dsets)
 # --------------------------------------------------------------------------- #
 
 # -------------------- GET TEMPLATED FILES TO BE POPULATED ------------------ #
-source = ['front', 'text', 'hdf5']
+source = ['front', 'text', 'hdf5', 's3']
 # build helper dictionaries with paths per source directory
 template_paths = get_template_paths(source)
 # build helper dictionaries with source files per source directory

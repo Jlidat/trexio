@@ -198,6 +198,16 @@ AS_IF([test "x$with_hdf5" == "xno"], [],
 
 AM_CONDITIONAL([HAVE_HDF5],[test "x$with_hdf5" != "xno"])
 
+AC_ARG_WITH([s3],
+	    AS_HELP_STRING([--with-s3], [Compile with S3 backend]), [
+			    with_s3="$withval"], [with_s3="no"])
+AS_IF([test "x$with_s3"== "xno"],[],
+      [test "x$with_s3" == "xyes"], [
+           AC_DEFINE([HAVE_S3], 1, [Define to 1 if S3 is activated]) ])
+
+AM_CONDITIONAL([HAVE_S3],[test "x$with_s3" != "xno"])
+
+
 AC_SUBST([PKG_HDF5])
 AC_SUBST([HDF5_LDFLAGS])
 AC_SUBST([HDF5_LIBS])
@@ -349,6 +359,7 @@ LIBS ..........:  ${LIBS}
 Package features:
   Compilation with HDF5 ..:  ${with_hdf5}
   HDF5 version ...........:  ${HDF5_VERSION}
+  Compilation with S3 ....:  ${with_s3}
 
 Now type 'make @<:@<target>@:>@'
 where the optional <target> is:

@@ -73,6 +73,11 @@ SOURCES += src/trexio_hdf5.c \
            src/trexio_hdf5.h
 endif
 
+if HAVE_S3
+SOURCES += src/trexio_s3.c \
+           src/trexio_s3.h
+endif
+
 ORG_FILES = \
   src/templates_front/templator_front.org \
   src/templates_text/templator_text.org \
@@ -80,6 +85,10 @@ ORG_FILES = \
 
 if HAVE_HDF5
 ORG_FILES += src/templates_hdf5/templator_hdf5.org
+endif
+
+if HAVE_S3
+ORG_FILES += src/templates_s3/templator_s3.org
 endif
 
 src_libtrexio_la_SOURCES = $(trexio_h) $(SOURCES)
@@ -100,43 +109,56 @@ TEST_FILES = \
     tests/delete_group.c \
     tests/delete_group_hdf5.c \
     tests/delete_group_text.c \
+    tests/delete_group_s3.c \
     tests/io_all.c \
     tests/io_determinant.c \
     tests/io_determinant_hdf5.c \
     tests/io_determinant_text.c \
+    tests/io_determinant_s3.c \
     tests/io_dset_float.c \
     tests/io_dset_float_hdf5.c \
     tests/io_dset_float_text.c \
+    tests/io_dset_float_s3.c \
     tests/io_dset_int.c \
     tests/io_dset_int_hdf5.c \
     tests/io_dset_int_text.c \
+    tests/io_dset_int_s3.c \
     tests/io_dset_sparse.c \
     tests/io_dset_sparse_hdf5.c \
     tests/io_dset_sparse_text.c \
+    tests/io_dset_sparse_s3.c \
     tests/io_dset_str.c \
     tests/io_dset_str_hdf5.c \
     tests/io_dset_str_text.c \
+    tests/io_dset_str_s3.c \
     tests/io_jastrow.c \
     tests/io_jastrow_hdf5.c \
     tests/io_jastrow_text.c \
+    tests/io_jastrow_s3.c \
     tests/io_num.c \
     tests/io_num_hdf5.c \
     tests/io_num_text.c \
+    tests/io_num_s3.c \
     tests/io_safe_dset_float.c \
     tests/io_safe_dset_float_hdf5.c \
     tests/io_safe_dset_float_text.c \
+    tests/io_safe_dset_float_s3.c \
     tests/io_str.c \
     tests/io_str_hdf5.c \
     tests/io_str_text.c \
+    tests/io_str_s3.c \
     tests/open.c \
     tests/open_hdf5.c \
     tests/open_text.c \
+    tests/open_s3.c \
     tests/overwrite_all.c \
     tests/overwrite_all_hdf5.c \
     tests/overwrite_all_text.c \
+    tests/overwrite_all_s3.c \
     tests/pre_close.c \
     tests/template_hdf5.c \
     tests/template_text.c \
+    tests/template_s3.c \
     tests/test_f.f90 \
     tests/test_macros.h \
     tests/trexio_f.f90
@@ -173,6 +195,22 @@ TESTS_C += \
   tests/io_dset_str_hdf5 \
   tests/delete_group_hdf5 \
   tests/overwrite_all_hdf5
+endif
+
+if HAVE_S3
+TESTS_C += \
+  tests/open_s3 \
+  tests/io_num_s3 \
+  tests/io_dset_float_s3 \
+  tests/io_dset_int_s3 \
+  tests/io_dset_sparse_s3 \
+  tests/io_determinant_s3 \
+  tests/io_jastrow_s3 \
+  tests/io_safe_dset_float_s3 \
+  tests/io_str_s3 \
+  tests/io_dset_str_s3 \
+  tests/delete_group_s3 \
+  tests/overwrite_all_s3
 endif
 
 TESTS = $(TESTS_C)
@@ -216,6 +254,9 @@ HTML_TANGLED = docs/index.html            \
                docs/templator_text.html
 if HAVE_HDF5
 HTML_TANGLED += docs/templator_hdf5.html
+endif
+if HAVE_S3
+HTML_TANGLED += docs/templator_s3.html
 endif
 
 htmldir = $(docdir)
