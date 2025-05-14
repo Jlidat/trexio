@@ -59,7 +59,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-#include <trexio_s3.h>
+#include <trexio_text.h>
   #+end_src
 
   #+begin_src c :tangle prefix_s3.c :noweb yes
