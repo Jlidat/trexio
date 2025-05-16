@@ -40,6 +40,7 @@ echo "create populated directories"
 mkdir -p templates_front/populated
 mkdir -p templates_text/populated
 mkdir -p templates_hdf5/populated
+mkdir -p templates_s3/populated
 
 # It is important to ad '--' to rm because it tells rm that what follows are
 # not options. It is safer.
@@ -49,11 +50,13 @@ echo "remove existing templates"
 rm -f -- templates_front/*.{c,h,f90}
 rm -f -- templates_text/*.{c,h}
 rm -f -- templates_hdf5/*.{c,h}
+rm -f -- templates_s3/*.{c,h}
 
 echo "clean populated directories"
 rm -f -- templates_front/populated/*
 rm -f -- templates_text/populated/*
 rm -f -- templates_hdf5/populated/*
+rm -f -- templates_s3/populated/*
 
 # Produce source files for front end
 echo "tangle org files to generate templates"
@@ -71,6 +74,11 @@ cd templates_hdf5
 tangle templator_hdf5.org
 cd ..
 
+# Produce source files for S3 back end
+cd templates_s3
+tangle templator_s3.org
+cd ..
+
 # Populate templates with TREXIO structure according to trex.json file
 echo "run generator script to populate templates"
 cp ${TOOLS}/generator.py ${TOOLS}/generator_tools.py ${SRC}
@@ -86,13 +94,10 @@ cp trexio* ../
 cd ..
 mv trexio.h trexio_f.f90 ../include
 
-cd templates_text
-source build.sh
-cp trexio* ../
-cd ..
-
-cd templates_hdf5
-source build.sh
-cp trexio* ../
-cd ..
-
+for dir in templates_{text,hdf5,s3}
+do
+	cd $dir
+	source build.sh
+	cp trexio* ../
+	cd ..
+done

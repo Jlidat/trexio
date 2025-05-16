@@ -59,7 +59,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-#include <trexio_s3.h>
+//#include <trexio_s3.h>
   #+end_src
 
   #+begin_src c :tangle prefix_s3.c :noweb yes
@@ -72,6 +72,23 @@
 #include "trexio_s3.h"
 
   #+end_src
+
+* Template for group-related structures in text back end
+
+    #+begin_src c :tangle struct_s3_group_dset.h
+typedef struct $group$_s {
+  $group_num_dtype_double$ $group_num$;
+  $group_dset_dtype$*  $group_dset$;
+  uint64_t dims_$group_dset$[16];
+  uint64_t len_$group_str$;
+  uint32_t rank_$group_dset$;
+  uint32_t to_flush;
+  bool $group_num$_isSet;
+  char*    $group_str$;
+  char     file_name[TREXIO_MAX_FILENAME_LENGTH];
+} $group$_t;
+    #+end_src
+
 
 * Template for general structure in text back end
 
