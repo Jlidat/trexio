@@ -59,6 +59,9 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <trexio_text.h>
+#include <trexio_s3.h>
+
+typedef struct trexio_s3_client trexio_s3_client;
   #+end_src
 
   #+begin_src c :tangle prefix_s3.c :noweb yes
@@ -85,6 +88,7 @@ typedef struct $group$_s {
   bool $group_num$_isSet;
   char*    $group_str$;
   char     file_name[TREXIO_MAX_FILENAME_LENGTH];
+  trexio_s3_client* client; //pointeur vers la connexion S3
 } $group$_t;
     #+end_src
 
@@ -100,7 +104,9 @@ typedef struct $group$_s {
 typedef struct trexio_s3_s {
   trexio_t   parent ;
   $group$_t* $group$;
-  int        lock_file;
+//  int        lock_file;
+  trexio_s3_client* client; //Pointeur vers la connexion S3 NOZHA SAFI
+  char s3_bucket_name[TREXIO_MAX_FILENAME_LENGTH]; //Nom du bucket S3
 } trexio_s3_t;
     #+end_src
 
@@ -110,24 +116,23 @@ typedef struct trexio_s3_s {
 trexio_exit_code trexio_s3_init(trexio_t* const file);
 trexio_exit_code trexio_s3_inquire(const char* file_name);
 trexio_exit_code trexio_s3_deinit(trexio_t* const file);
-trexio_exit_code trexio_s3_lock(trexio_t* const file);
-trexio_exit_code trexio_s3_unlock(trexio_t* const file);
 trexio_exit_code trexio_s3_flush(trexio_t* const file);
 bool trexio_s3_file_exists(const char* file_name);
+//bool trexio_s3_file_exists(trexio_s3_client* client, const char* file_name);
     #+end_src
 
     #+begin_src c :tangle basic_s3.c
 bool
+//trexio_s3_file_exists (trexio_s3_client* client, const char* file_name)
 trexio_s3_file_exists (const char* file_name)
 {
-  /* Check if the file with "file_name" exists */
-  struct stat st;
-
-  int rc = stat(file_name, &st);
-
-  bool file_exists = rc == 0;
-
-  return file_exists;
+  /* Check if the client and the file with "file_name" exists*/
+/*        if(client==NULL || file_name==NULL){
+                return false;  //Défense contre les pointeurs NULL
+        }
+        int32_t exists=s3_file_exists(client, file_name, strlen(file_name));
+        return exists==0;
+*/
 }
     #+end_src
 
@@ -135,58 +140,20 @@ trexio_s3_file_exists (const char* file_name)
 trexio_exit_code
 trexio_s3_inquire (const char* file_name)
 {
-  /* Check if the file with "file_name" exists and that it is a directory */
-  struct stat st;
+ /* Check if the file with "file_name" exists and that it is a directory */
+  /* Check if a logical directory (prefix) exists on S3 by checking for any object under that prefix.*/
+      if(file_name==NULL){
+        return TREXIO_INVALID_ARG_1;
+      }
+      trexio_s3_client* client=s3_connect();
+      if(client==NULL){
+        return TREXIO_FAILURE; //Connexion echec
+      }
+//!!      bool file_exists = trexio_s3_file_exists(client, file_name);
+      s3_disconnect(client);
+//!!      return file_exists ? TREXIO_SUCCESS : TREXIO_FAILURE;
 
-  int rc = stat(file_name, &st);
-
-  bool file_exists = rc == 0;
-
-  if (file_exists) {
-
-    bool is_a_directory = false;
-#if defined(S_IFDIR)
-    is_a_directory = st.st_mode & S_IFDIR;
-#elif defined(S_ISDIR)
-    is_a_directory = S_ISDIR(st.st_mode);
-#else
-    printf("Some important macros are missing for directory handling.\n");
-    return TREXIO_FAILURE;
-#endif
-    if (!is_a_directory) return TREXIO_FILE_ERROR;
-
-    return TREXIO_SUCCESS;
-  } else {
-    return TREXIO_FAILURE;
-  }
 }
-    #+end_src
-
-On non-POSIX file systems, the function ~mkdtemp~ might is not defined.
-In that case, we define an alternate one, which is not as safe as the original one.
-
-    #+begin_src c :tangle basic_s3.c
-#if  /* Since glibc 2.19: */ _DEFAULT_SOURCE \
-           || /* Glibc 2.19 and earlier: */ _BSD_SOURCE \
-           || /* Since glibc 2.10: */ _POSIX_C_SOURCE >= 200809L
-
-/* mkdtemp is defined */
-#else
-
-char* mkdtemp(char* template) {
-    char* dir = NULL;
-    dir = tmpnam(dir);
-    if (dir == NULL) return NULL;
-
-    if (mkdir(dir, S_IRWXU | S_IRWXG | S_IRWXO) != 0) {
-        return NULL;
-    }
-
-    strcpy(template, dir);
-    return template;
-}
-
-#endif
     #+end_src
 
     #+begin_src c :tangle basic_s3.c
@@ -200,59 +167,19 @@ trexio_s3_init (trexio_t* const file)
 
   /* Put all pointers to NULL but leave parent untouched */
   memset(&(f->parent)+1,0,sizeof(trexio_s3_t)-sizeof(trexio_t));
+ f->client=s3_connect();
+  if(f->client==NULL) return TREXIO_FAILURE;
 
-  /* Check if directory exists */
-  trexio_exit_code rc;
-  rc = trexio_s3_inquire(file->file_name);
-  /* TREXIO file exists but is not  a directory */
-  if (rc == TREXIO_FILE_ERROR) return rc;
-  /* If directory does not exist - create it in write mode */
-  if (rc == TREXIO_FAILURE) {
+  /* Check if the file (prefix) exists in the S3 bucket */
+  bool exist;
+  exist = s3_file_exists(f->client, file->file_name, strlen(file->file_name));
 
-    if (file->mode == 'r') return TREXIO_READONLY;
-
-    int rc_dir = mkdir(file->file_name, 0777);
-    if (rc_dir != 0) return TREXIO_ERRNO;
-
-  }
-
-  /* Create the lock file in the directory */
-  const char* lock_file_name = "/.lock";
-
-  char file_name[TREXIO_MAX_FILENAME_LENGTH];
-
-  strncpy (file_name, file->file_name, TREXIO_MAX_FILENAME_LENGTH);
-  file_name[TREXIO_MAX_FILENAME_LENGTH-1] = '\0';
-  strncat (file_name, lock_file_name, TREXIO_MAX_FILENAME_LENGTH-strlen(lock_file_name));
-
-  if (file_name[TREXIO_MAX_FILENAME_LENGTH-1] != '\0') {
-    return TREXIO_LOCK_ERROR;
-  }
-
-  f->lock_file = open(file_name,O_WRONLY|O_CREAT|O_TRUNC, 0644);
-
-  if (f->lock_file <= 0) {
-    if (file->mode != 'r') {
-      return TREXIO_ERRNO;
-    } else {
-      if (errno == EACCES) {
-        /* The directory is read-only and the lock file can't be written.
-          Create a dummy temporary file for dummy locking.
-        ,*/
-        char dirname[TREXIO_MAX_FILENAME_LENGTH] = "/tmp/trexio.XXXXXX";
-        if (mkdtemp(dirname) == NULL) return TREXIO_ERRNO;
-        strncpy (file_name, dirname, TREXIO_MAX_FILENAME_LENGTH);
-        file_name[TREXIO_MAX_FILENAME_LENGTH-1] = '\0';
-        strncat (file_name, lock_file_name, TREXIO_MAX_FILENAME_LENGTH-strlen(lock_file_name));
-        f->lock_file = open(file_name,O_WRONLY|O_CREAT|O_TRUNC, 0644);
-        remove(file_name);
-        rmdir(dirname);
-      } else {
-        return TREXIO_ERRNO;
-      }
-    }
-  }
-
+ /* If file does not exist - create it in write mode */
+  if(!exist && file->mode == 'r') {
+        s3_disconnect(f->client);
+        return TREXIO_OPEN_ERROR;
+     }
+//si le mode est écriture, on peut continuer (création différée)
   return TREXIO_SUCCESS;
 }
     #+end_src
@@ -260,19 +187,6 @@ trexio_s3_init (trexio_t* const file)
     #+begin_src c :tangle basic_s3.c
 trexio_exit_code trexio_s3_lock(trexio_t* const file) {
   if (file == NULL) return TREXIO_INVALID_ARG_1;
-
-  trexio_s3_t* const f = (trexio_s3_t*) file;
-
-  struct flock fl;
-
-  fl.l_type   = F_WRLCK;
-  fl.l_whence = SEEK_SET;
-  fl.l_start  = 0;
-  fl.l_len    = 0;
-  fl.l_pid    = getpid();
-
-  int rc = fcntl(f->lock_file, F_SETLKW, &fl);
-  if (rc == -1) return TREXIO_FAILURE;
 
   return TREXIO_SUCCESS;
 
@@ -286,18 +200,6 @@ trexio_s3_unlock (trexio_t* const file)
 
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  trexio_s3_t* const f = (trexio_s3_t*) file;
-
-  struct flock fl;
-
-  fl.l_type   = F_UNLCK;
-  fl.l_whence = SEEK_SET;
-  fl.l_start  = 0;
-  fl.l_len    = 0;
-  fl.l_pid    = getpid();
-  fcntl(f->lock_file, F_SETLK, &fl);
-
-  close(f->lock_file);
   return TREXIO_SUCCESS;
 
 }
@@ -312,15 +214,21 @@ trexio_s3_deinit (trexio_t* const file)
 
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  trexio_exit_code rc;
+ trexio_s3_t* const f=(trexio_s3_t*)file;
+
+  trexio_exit_code rc=TREXIO_SUCCESS;
 
   /* Error handling for this call is added by the generator */
-/* TODO
-  rc = trexio_s3_free_$group$( (trexio_s3_t*) file);
-*/
+  rc = trexio_s3_free_$group$(f);
+  if(rc!=TREXIO_SUCCESS){
+        s3_disconnect(f->client);
+        f->client =NULL;
+        return rc;
+   }
+   s3_disconnect(f->client);
+   f->client=NULL;
 
-  return TREXIO_SUCCESS;
-
+   return TREXIO_SUCCESS;
 }
     #+end_src
 
@@ -330,16 +238,14 @@ trexio_s3_deinit (trexio_t* const file)
 trexio_exit_code
 trexio_s3_flush (trexio_t* const file)
 {
-
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  trexio_exit_code rc;
   trexio_s3_t* f = (trexio_s3_t*) file;
-
-  rc = trexio_s3_flush_$group$(f); if (rc != TREXIO_SUCCESS) return rc;
+  trexio_exit_code rc;
+  rc = trexio_s3_flush_$group$(f);   //Cette fonction va appeler s3_put()
+  if (rc != TREXIO_SUCCESS) return rc;
 
   return TREXIO_SUCCESS;
-
 }
     #+end_src
 
@@ -373,7 +279,7 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
   strncpy ($group$->file_name, file->parent.file_name, TREXIO_MAX_FILENAME_LENGTH);
   $group$->file_name[TREXIO_MAX_FILENAME_LENGTH-1] = '\0';
   strncat ($group$->file_name, $group$_file_name,
-           TREXIO_MAX_FILENAME_LENGTH-strlen($group$_file_name));
+           TREXIO_MAX_FILENAME_LENGTH-strlen($group$_file_name)-1);
 
   if ($group$->file_name[TREXIO_MAX_FILENAME_LENGTH-1] != '\0') {
     FREE($group$);
@@ -381,40 +287,53 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
   }
 
   /* If the file exists, read it */
-  FILE* f = fopen($group$->file_name,"r");
-  if (f != NULL) {
+ /* Find size of file to allocate the max size of the string buffer */
 
-    /* Find size of file to allocate the max size of the string buffer */
-    fseek(f, 0L, SEEK_END);
-    size_t sz = ftell(f);
-    fseek(f, 0L, SEEK_SET);
+    size_t sz=s3_size(file->client, $group$->file_name, strlen($group$->file_name));
+    if(sz == 0){
+        FREE($group$);
+        return NULL;
+    }
+
+    char* f=CALLOC(sz+1, char);  //+1 pour null-terminate si texte
+    if(f==NULL){
+        FREE($group$);
+        return NULL;
+
+    int rc=s3_get(file->client, $group$->file_name, strlen($group$->file_name), f, sz);
+    if(rc != 0){
+        FREE(f);
+        FREE($group$);
+        return NULL;
+    }
 
     sz = (sz < 1024) ? (1024) : (sz);
     char* buffer = CALLOC(sz, char);
     if (buffer == NULL) {
-      fclose(f);
+      FREE(f);
       FREE($group$);
       return NULL;
     }
 
-    int rc = 0;
-    (void) rc;  // Avoid unused variable;
-    trexio_exit_code rc_free = TREXIO_FAILURE;
-    (void) rc_free;  // Avoid unused variable;
+   // int rc = 0;
+  //  (void) rc;  // Avoid unused variable;
+  //  trexio_exit_code rc_free = TREXIO_FAILURE;
+   // (void) rc_free;  // Avoid unused variable;
 
     /* workaround for the case of missing blocks in the file */
     // START REPEAT GROUP_DSET_ALL
     uint64_t size_$group_dset$ = 0;
     // END REPEAT GROUP_DSET_ALL
-
-    while(fscanf(f, "%1023s", buffer) != EOF) {
+    
+    char* line =f;
+    while(sscanf(line, "%1023s", buffer) != EOF) {
 
       if (strcmp(buffer, "EXIT") == 0) {
         break;
       // START REPEAT GROUP_DSET_ALL
       } else if (strcmp(buffer, "rank_$group_dset$") == 0) {
-
-        rc = fscanf(f, "%u", &($group$->rank_$group_dset$));
+          line+=strcspn(line,"\n")+1;
+        rc = sscanf(line, "%u", &($group$->rank_$group_dset$));
         if (rc != 1) {
           trexio_s3_free_read_$group$(buffer, f, file, $group$);
           return NULL;
@@ -423,15 +342,15 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
         if ($group$->rank_$group_dset$ != 0) size_$group_dset$ = 1UL;
 
         for (uint32_t i=0; i<$group$->rank_$group_dset$; ++i){
-
+          line+=strcspn(line,"\n")+1;
           uint32_t j=0;
-          rc = fscanf(f, "%1023s %u", buffer, &j);
+          rc = sscanf(line, "%1023s %u", buffer, &j);
           if ((rc != 2) || (strcmp(buffer, "dims_$group_dset$") != 0) || (j!=i)) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
           }
-
-          rc = fscanf(f, "%" SCNu64 "\n", &($group$->dims_$group_dset$[i]));
+          line+=strcspn(line,"\n")+1;
+          rc = sscanf(line, "%" SCNu64 "\n", &($group$->dims_$group_dset$[i]));
           assert(!(rc != 1));
           if (rc != 1) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
@@ -452,7 +371,8 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
         }
 
         for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
-          rc = fscanf(f, "%$group_dset_format_scanf$", &($group$->$group_dset$[i]));
+          line+=strcspn(line,"\n")+1;
+          rc = sscanf(line, "%$group_dset_format_scanf$", &($group$->$group_dset$[i]));
           if (rc != 1) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
@@ -462,27 +382,27 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
       // END REPEAT GROUP_DSET_NUM
       // START REPEAT GROUP_DSET_STR
       } else if (strcmp(buffer, "$group_dset$") == 0) {
-
-        if (size_$group_dset$ != 0) {
-          /* Allocate arrays */
-          $group$->$group_dset$ = CALLOC(size_$group_dset$, $group_dset_dtype$);
-          if ($group$->$group_dset$ == NULL) {
-            trexio_s3_free_read_$group$(buffer, f, file, $group$);
-            return NULL;
-          }
+          line+=strcspn(line,"\n")+1;
+          if (size_$group_dset$ != 0) {
+             /* Allocate arrays */
+               $group$->$group_dset$ = CALLOC(size_$group_dset$, $group_dset_dtype$);
+               if ($group$->$group_dset$ == NULL) {
+                   trexio_s3_free_read_$group$(buffer, f, file, $group$);
+                   return NULL;
+               }   
 
           /* WARNING: this tmp array allows to avoid allocation of space for each element of array of string
            ,* BUT it's size has to be number_of_str*max_len_str where max_len_str is somewhat arbitrary, e.g. 32.
            ,*/
-          char* tmp_$group_dset$;
-          tmp_$group_dset$ = CALLOC(size_$group_dset$*32, char);
+             char* tmp_$group_dset$;
+             tmp_$group_dset$ = CALLOC(size_$group_dset$*32, char);
 
-          for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
-            $group$->$group_dset$[i] = tmp_$group_dset$;
-            /* conventional fcanf with "%s" only return the string before the first space character
-             ,* to read string with spaces use "%[^\n]" possible with space before or after, i.e. " %[^\n]"
-             ,*/
-            rc = fscanf(f, " %1023[^\n]", buffer);
+             for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
+                  $group$->$group_dset$[i] = tmp_$group_dset$;
+/* conventional fcanf with "%s" only return the string before the first space character
+,* to read string with spaces use "%[^\n]" possible with space before or after, i.e. " %[^\n]"
+,*/
+            rc = sscanf(line, " %1023[^\n]", buffer);
             if (rc != 1) {
               trexio_s3_free_read_$group$(buffer, f, file, $group$);
               return NULL;
@@ -498,10 +418,10 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
       // END REPEAT GROUP_DSET_STR
       // START REPEAT GROUP_NUM
       } else if (strcmp(buffer, "$group_num$_isSet") == 0) {
-
+        line+=strcspn(line,"\n")+1;
         unsigned int $group_num$_isSet;
         /* additional parameter $group_num$_isSet is needed to suppress warning when fscanf into bool variable using %u or %d */
-        rc = fscanf(f, "%u", &($group_num$_isSet));
+        rc = sscanf(line, "%u", &($group_num$_isSet));
         $group$->$group_num$_isSet = (bool) $group_num$_isSet;
         if (rc != 1) {
           trexio_s3_free_read_$group$(buffer, f, file, $group$);
@@ -509,14 +429,14 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
         }
 
         if ($group$->$group_num$_isSet == true) {
-
-          rc = fscanf(f, "%1023s", buffer);
+          line+=strcspn(line,"\n")+1;
+          rc = sscanf(line, "%1023s", buffer);
           if ((rc != 1) || (strcmp(buffer, "$group_num$") != 0)) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
           }
-
-          rc = fscanf(f, "%$group_num_format_scanf$", &($group$->$group_num$));
+          line+=strcspn(line,"\n")+1;
+          rc = sscanf(line, "%$group_num_format_scanf$", &($group$->$group_num$));
           if (rc != 1) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
@@ -527,14 +447,14 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
       // END REPEAT GROUP_NUM
       // START REPEAT GROUP_ATTR_STR
       } else if (strcmp(buffer, "len_$group_str$") == 0) {
-
-        rc = fscanf(f, "%" SCNu64 "", &($group$->len_$group_str$));
+          line+=strcspn(line,"\n")+1;
+        rc = sscanf(line, "%" SCNu64 "", &($group$->len_$group_str$));
         if (rc != 1) {
           trexio_s3_free_read_$group$(buffer, f, file, $group$);
           return NULL;
         }
-
-        rc = fscanf(f, "%1023s", buffer);
+          line+=strcspn(line,"\n")+1;
+        rc = sscanf(line, "%1023s", buffer);
         if ((rc != 1) || (strcmp(buffer, "$group_str$") != 0)) {
           trexio_s3_free_read_$group$(buffer, f, file, $group$);
           return NULL;
@@ -547,8 +467,8 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
           }
-
-          rc = fscanf(f, " %1023[^\n]", buffer);
+          line+=strcspn(line,"\n")+1;
+          rc = sscanf(line, " %1023[^\n]", buffer);
           if (rc != 1) {
             trexio_s3_free_read_$group$(buffer, f, file, $group$);
             return NULL;
@@ -560,14 +480,14 @@ trexio_s3_read_$group$ (trexio_s3_t* const file)
         }
       // END REPEAT GROUP_ATTR_STR
       } else {
+        line+=strcspn(line,"\n")+1;
         continue;
       }
-
+      line+=strcspn(line,"\n")+1;
     }
 
     FREE(buffer);
-    fclose(f);
-    f = NULL;
+    FREE(f);
   }
 
   file->$group$ = $group$;
@@ -607,6 +527,7 @@ trexio_s3_has_$group$ (trexio_t* const file)
   if ($group$_full_path[TREXIO_MAX_FILENAME_LENGTH-1] != '\0') return TREXIO_FAILURE;
 
   bool file_exists;
+//  file_exists = trexio_s3_file_exists(file->client, $group$_full_path);
   file_exists = trexio_s3_file_exists($group$_full_path);
 
   if (file_exists) {
@@ -639,43 +560,202 @@ trexio_s3_flush_$group$ (trexio_s3_t* const file)
 
   assert (file->parent.mode == 'w' || file->parent.mode == 'u');
 
-  FILE* f = fopen($group$->file_name, "w");
-  if (f == NULL) return TREXIO_INVALID_ARG_1;
+//=== Construction du chemin S3 ===
+  const char* suffix="/$group$.txt";
+ if(strlen(file->parent.file_name)+strlen(suffix)>=TREXIO_MAX_FILENAME_LENGTH) return TREXIO_FAILURE;
+
+  char s3_path[TREXIO_MAX_FILENAME_LENGTH];
+
+  strncpy(s3_path, file->parent.file_name, TREXIO_MAX_FILENAME_LENGTH);
+
+  s3_path[TREXIO_MAX_FILENAME_LENGTH - 1]='\0';
+  strncat(s3_path, suffix, TREXIO_MAX_FILENAME_LENGTH - strlen(s3_path) - 1);
+
+  if(s3_path[TREXIO_MAX_FILENAME_LENGTH -1]!='\0') return TREXIO_FAILURE;
+//=== Initialisation du buffer dynamique ===
+  size_t buffer_init=4096;
+  size_t buffer_size=0;
+  char* buffer = malloc(buffer_init);
+  if(!buffer) return TREXIO_FAILURE;
+
+// === Ligne de sortie temporaire ===
+  char line[1024];
+  size_t line_len;
+
+//=== Ecriture des dimension
 
   /* Write the dimensioning variables */
   // START REPEAT GROUP_DSET_ALL
-  fprintf(f, "rank_$group_dset$ %u\n", $group$->rank_$group_dset$);
+  snprintf(line, sizeof(line), "rank_$group_dset$ %u\n", $group$->rank_$group_dset$);
+
+  line_len=strlen(line);
+
+  // === Réallocation si nécessaire ===
+  while(buffer_size + line_len >= buffer_init){
+        buffer_init *=2;
+        char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+        if(!new_buffer){
+                FREE(buffer);
+                return TREXIO_FAILURE;
+        }
+        buffer=new_buffer;
+  }
+  memcpy(buffer+buffer_size, line, line_len);
+  buffer_size += line_len;
+
   // workaround for the case of missing blocks in the file
   uint64_t size_$group_dset$ = 0;
   if ($group$->rank_$group_dset$ != 0) size_$group_dset$ = 1;
 
   for (unsigned int i=0; i<$group$->rank_$group_dset$; ++i){
-    fprintf(f, "dims_$group_dset$ %u %" PRIu64 "\n", i, $group$->dims_$group_dset$[i]);
-    size_$group_dset$ *= $group$->dims_$group_dset$[i];
+        snprintf(line, sizeof(line), "dims_$group_dset$ %u %" PRIu64 "\n", i, $group$->dims_$group_dset$[i]);
+        line_len=strlen(line);
+       // === Réallocation si nécessaire ===
+        while(buffer_size + line_len >= buffer_init){
+                buffer_init *=2;
+                char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+                if(!new_buffer){
+                        FREE(buffer);
+                        return TREXIO_FAILURE;
+                }
+                buffer=new_buffer;
+        }
+        memcpy(buffer+buffer_size, line, line_len);
+        buffer_size += line_len;
+        size_$group_dset$ *= $group$->dims_$group_dset$[i];
   }
   // END REPEAT GROUP_DSET_ALL
 
   // START REPEAT GROUP_NUM
-  fprintf(f, "$group_num$_isSet %u \n", $group$->$group_num$_isSet);
-  if ($group$->$group_num$_isSet == true) fprintf(f, "$group_num$ %$group_num_format_printf$ \n", $group$->$group_num$);
+  snprintf(line, sizeof(line), "$group_num$_isSet %u \n", $group$->$group_num$_isSet);
+  line_len = strlen(line);
+ // === Réallocation si nécessaire ===
+  while(buffer_size + line_len >= buffer_init){
+        buffer_init *=2;
+        char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+        if(!new_buffer){
+                FREE(buffer);
+                return TREXIO_FAILURE;
+        }
+        buffer=new_buffer;
+  }
+  memcpy(buffer+buffer_size, line, line_len);
+  buffer_size += line_len;
+
+  if($group$->$group_num$_isSet==true){
+        snprintf(line, sizeof(line), "$group_num$ %$group_num_format_printf$\n", $group$->$group_num$);
+        line_len = strlen(line);
+
+        // === Réallocation si nécessaire ===
+        while(buffer_size + line_len >= buffer_init){
+                buffer_init *=2;
+               char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+                if(!new_buffer){
+                        FREE(buffer);
+                        return TREXIO_FAILURE;
+                }
+                buffer=new_buffer;
+        }
+        memcpy(buffer+buffer_size, line, line_len);
+         buffer_size += line_len;
+  }
   // END REPEAT GROUP_NUM
 
   // START REPEAT GROUP_ATTR_STR
-  fprintf(f, "len_$group_str$ %" PRIu64 "\n", $group$->len_$group_str$);
-  fprintf(f, "$group_str$\n");
-  if ($group$->len_$group_str$ != 0) fprintf(f, "%s\n", $group$->$group_str$);
+  snprintf(line, sizeof(line), "len_$group_str$ %" PRIu64 "\n", $group$->len_$group_str$);
+  line_len = strlen(line);
+
+  // === Réallocation si nécessaire ===
+  while(buffer_size + line_len >= buffer_init){
+        buffer_init *=2;
+       char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+        if(!new_buffer){
+                FREE(buffer);
+                return TREXIO_FAILURE;
+        }
+        buffer=new_buffer;
+  }
+  memcpy(buffer+buffer_size, line, line_len);
+  buffer_size += line_len;
+
+  snprintf(line, sizeof(line), "$group_str$\n");
+  line_len = strlen(line);
+
+  // === Réallocation si nécessaire ===
+  while(buffer_size + line_len >= buffer_init){
+       buffer_init *=2;
+        char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+        if(!new_buffer){
+                FREE(buffer);
+                return TREXIO_FAILURE;
+        }
+        buffer=new_buffer;
+  }
+  memcpy(buffer+buffer_size, line, line_len);
+  buffer_size += line_len;
+
+  if($group$->len_$group_str$ !=0){
+        snprintf(line, sizeof(line), "%s\n", $group$->$group_str$);
+        line_len = strlen(line);
+
+        // === Réallocation si nécessaire ===
+        while(buffer_size + line_len >= buffer_init){
+                buffer_init *=2;
+                char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+               if(!new_buffer){
+                        FREE(buffer);
+                        return TREXIO_FAILURE;
+                }
+                buffer=new_buffer;
+        }
+        memcpy(buffer+buffer_size, line, line_len);
+        buffer_size += line_len;
+  }
   // END REPEAT GROUP_ATTR_STR
+
+
 
   /* Write arrays */
   // START REPEAT GROUP_DSET_ALL
 
-  fprintf(f, "$group_dset$\n");
+  snprintf(line, sizeof(line), "$group_dset$\n");
   for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
-    fprintf(f, "%$group_dset_format_printf$\n", $group$->$group_dset$[i]);
+    snprintf(line, sizeof(line), "%$group_dset_format_printf$\n", $group$->$group_dset$[i]);
+   line_len=strlen(line);
+    // === Réallocation si nécessaire ===
+    while(buffer_size + line_len >= buffer_init){
+        buffer_init *=2;
+        char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+        if(!new_buffer){
+                FREE(buffer);
+                return TREXIO_FAILURE;
+        }
+        buffer=new_buffer;
+    }
+        memcpy(buffer+buffer_size, line, line_len);
+        buffer_size += line_len;
   }
   // END REPEAT GROUP_DSET_ALL
+//=== Fin du fichier ==
+  snprintf(line, sizeof(line), "EXIT\n");
+  line_len=strlen(line);
+        // === Réallocation si nécessaire ===
+        while(buffer_size + line_len >= buffer_init){
+                buffer_init *=2;
+                char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+                if(!new_buffer){
+                        FREE(buffer);
+                        return TREXIO_FAILURE;
+                }
+                buffer=new_buffer;
+        }
+        memcpy(buffer+buffer_size, line, line_len);
+        buffer_size += line_len;
 
-  fclose(f);
+//=== Upload final vers S3 ===
+  int rc=s3_put(file->client, s3_path, buffer, buffer_size);
+  FREE(buffer);
+ if(rc!=0) return TREXIO_FAILURE;
   $group$->to_flush = 0;
   return TREXIO_SUCCESS;
 
@@ -706,18 +786,28 @@ trexio_s3_free_$group$ (trexio_s3_t* const file)
   if ($group$ == NULL) return TREXIO_SUCCESS;
 
   // START REPEAT GROUP_DSET_NUM
-  if ($group$->$group_dset$ != NULL) FREE ($group$->$group_dset$);
+  if ($group$->$group_dset$ != NULL){
+	 FREE ($group$->$group_dset$);
+	$group$->$group_dset$=NULL;
+  }
   // END REPEAT GROUP_DSET_NUM
 
   // START REPEAT GROUP_DSET_STR
-  if ($group$->$group_dset$ != NULL) {
-    if ($group$->rank_$group_dset$ != 0) FREE ($group$->$group_dset$[0]);
+    if ($group$->$group_dset$ != NULL) {
+    	if ($group$->rank_$group_dset$ != 0 && $group$->$group_dset$[0] != NULL){
+		 FREE ($group$->$group_dset$[0]);
+     	}
     FREE ($group$->$group_dset$);
+    $group$->$group_dset$ =NULL;
   }
+
   // END REPEAT GROUP_DSET_STR
 
   // START REPEAT GROUP_ATTR_STR
-  if ($group$->$group_str$ != NULL) FREE ($group$->$group_str$);
+  if ($group$->$group_str$ != NULL){
+	 FREE ($group$->$group_str$);
+	 $group$->$group_str$=NULL;
+  }
   // END REPEAT GROUP_ATTR_STR
 
   FREE ($group$);
@@ -731,21 +821,32 @@ trexio_s3_free_$group$ (trexio_s3_t* const file)
   This function is called upon the non-successful exit from the ~trexio_s3_read_group~ function.
 
     #+begin_src c :tangle free_group_s3.h :exports none
-trexio_exit_code trexio_s3_free_read_$group$ (char* buffer, FILE* txt_file, trexio_s3_t* trexio_file, $group$_t* $group$);
+//trexio_exit_code trexio_s3_free_read_$group$ (char* buffer, FILE* txt_file, trexio_s3_t* trexio_file, $group$_t* $group$);
+trexio_exit_code trexio_s3_free_read_$group$ (char* buffer, char* txt_file, trexio_s3_t* trexio_file, $group$_t* $group$);
     #+end_src
 
     #+begin_src c :tangle free_group_s3.c
 trexio_exit_code
-trexio_s3_free_read_$group$ (char* buffer, FILE* txt_file, trexio_s3_t* trexio_file, $group$_t* $group$)
+//trexio_s3_free_read_$group$ (char* buffer, FILE* txt_file, trexio_s3_t* trexio_file, $group$_t* $group$)
+trexio_s3_free_read_$group$ (char* buffer, char* file_buffer, trexio_s3_t* trexio_file, $group$_t* $group$)
 {
   trexio_exit_code rc_free;
+  if(buffer!=NULL){
+	FREE(buffer);
+  }
+  if(file_buffer!=NULL){
+	  FREE(file_buffer);
+  }
+  if(trexio_file==NULL) return TREXIO_INVALID_ARG_3;
 
-  FREE(buffer);
-  fclose(txt_file);
   /* Set pointer to the struct so that the garbage collector can do the job on file handle */
   trexio_file->$group$ = $group$;
   rc_free = trexio_s3_free_$group$(trexio_file);
-  assert(rc_free == TREXIO_SUCCESS);
+  //assert(rc_free == TREXIO_SUCCESS); est remplacé par:
+  if(rc_free!=TREXIO_SUCCESS){
+	fprintf(stderr, "Erreur : échec de libération des ressources (code %d)\n", rc_free);
+	return TREXIO_FAILURE;
+  }
 
   return TREXIO_SUCCESS;
 }
@@ -767,7 +868,10 @@ trexio_s3_read_$group_num$ (trexio_t* const file, $group_num_dtype_double$* cons
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
   if (num   == NULL) return TREXIO_INVALID_ARG_2;
 
-  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+ 
+  trexio_s3_t* s3_file = (trexio_s3_t*) file;
+  $group$_t* $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   *num = $group$->$group_num$;
@@ -785,7 +889,11 @@ trexio_s3_write_$group_num$ (trexio_t* const file, const $group_num_dtype_double
   if (file == NULL) return TREXIO_INVALID_ARG_1;
   if (file->mode == 'r') return TREXIO_READONLY;
 
-  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+ 
+  trexio_s3_t* s3_file = (trexio_s3_t*) file;
+  $group$_t* $group$ = trexio_s3_read_$group$(s3_file);
+
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   $group$->$group_num$ = num;
@@ -803,7 +911,10 @@ trexio_s3_has_$group_num$ (trexio_t* const file)
 {
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file = (trexio_s3_t*) file;
+  $group$_t* $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->$group_num$_isSet == true){
@@ -836,9 +947,14 @@ trexio_s3_read_$group_dset$ (trexio_t* const file, $group_dset_dtype$* const $gr
   if (rank < 1) return TREXIO_INVALID_ARG_3;
   if (dims == NULL) return TREXIO_INVALID_ARG_4;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
-  if ($group$ == NULL) return TREXIO_FAILURE;
+ // $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+ 
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if(s3_file==NULL) return TREXIO_INVALID_ARG_1;
 
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
+  if($group$==NULL) return TREXIO_FAILURE;
+ 
   if (rank != $group$->rank_$group_dset$) return TREXIO_INVALID_ARG_3;
 
   uint64_t dim_size = 1;
@@ -869,7 +985,12 @@ trexio_s3_write_$group_dset$ (trexio_t* const file, const $group_dset_dtype$* $g
 
   if (file->mode == 'r') return TREXIO_READONLY;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if(s3_file==NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->$group_dset$ != NULL) {
@@ -903,7 +1024,12 @@ trexio_s3_has_$group_dset$ (trexio_t* const file)
 
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+  //$group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if(s3_file==NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->rank_$group_dset$ > 0){
@@ -932,7 +1058,15 @@ trexio_s3_read_$group_dset$ (trexio_t* const file, char* const dset, const uint3
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
   if (dset == NULL) return TREXIO_INVALID_ARG_2;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  if(rank < 1) return TREXIO_INVALID_ARG_3;
+  if(dims == NULL) return TREXIO_INVALID_ARG_4;
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if(s3_file==NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if (rank != $group$->rank_$group_dset$) return TREXIO_INVALID_ARG_3;
@@ -959,15 +1093,23 @@ trexio_s3_write_$group_dset$ (trexio_t* const file, const char** dset, const uin
 
   if (file  == NULL)  return TREXIO_INVALID_ARG_1;
   if (dset == NULL)  return TREXIO_INVALID_ARG_2;
+  if (dims == NULL)  return TREXIO_INVALID_ARG_4;
 
   if (file->mode == 'r') return TREXIO_READONLY;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if(s3_file==NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->$group_dset$ != NULL) {
-    if ($group$->rank_$group_dset$ != 0) FREE($group$->$group_dset$[0]);
-    FREE($group$->$group_dset$);
+    if ($group$->rank_$group_dset$ != 0 && $group$->$group_dset$[0] != NULL){
+	 FREE($group$->$group_dset$[0]);
+ 	 FREE($group$->$group_dset$);
+     }
   }
 
   $group$->rank_$group_dset$ = rank;
@@ -983,11 +1125,24 @@ trexio_s3_write_$group_dset$ (trexio_t* const file, const char** dset, const uin
   if (tmp_str == NULL) return TREXIO_ALLOCATION_FAILED;
 
   for (uint64_t i=0 ; i<dims[0] ; ++i) {
-    size_t tmp_len = strlen(dset[i])+1;
-    $group$->$group_dset$[i] = tmp_str;
-    strncpy(tmp_str, dset[i], tmp_len);
-    tmp_str[tmp_len-1] = '\0';
-    tmp_str += tmp_len + 1;
+//    size_t tmp_len = strlen(dset[i])+1;
+//    $group$->$group_dset$[i] = tmp_str;
+//    strncpy(tmp_str, dset[i], tmp_len);
+//    tmp_str[tmp_len-1] = '\0';
+//    tmp_str += tmp_len + 1;
+
+       size_t tmp_len=strlen(dset[i])+1;
+       $group$->$group_dset$[i]=CALLOC(tmp_len, char);
+        if($group$->$group_dset$[i] == NULL){
+                for(uint64_t j=0; j<i; ++j){
+                        FREE($group$->$group_dset$[j]);
+                }
+                FREE($group$->$group_dset$);
+                $group$->$group_dset$ = NULL;
+                return TREXIO_ALLOCATION_FAILED;
+        }
+        strncpy($group$->$group_dset$[i], dset[i], tmp_len);
+
   }
 
   $group$->to_flush = 1;
@@ -1004,10 +1159,14 @@ trexio_s3_has_$group_dset$ (trexio_t* const file)
 
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
+
   if ($group$ == NULL) return TREXIO_FAILURE;
 
-  if ($group$->rank_$group_dset$ > 0){
+  if ($group$->rank_$group_dset$ > 0 && $group$->$group_dset$ != NULL){
     return TREXIO_SUCCESS;
   } else {
     return TREXIO_HAS_NOT;
@@ -1031,7 +1190,12 @@ trexio_s3_read_$group_str$ (trexio_t* const file, char* const str, const uint32_
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
   if (str == NULL) return TREXIO_INVALID_ARG_2;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if (s3_file == NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   strncpy(str, $group$->$group_str$, max_str_len);
@@ -1052,7 +1216,12 @@ trexio_s3_write_$group_str$ (trexio_t* const file, const char *str)
 
   if (file->mode == 'r') return TREXIO_READONLY;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+//  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if (s3_file == NULL) return TREXIO_INVALID_ARG_1;
+ 
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->$group_str$ != NULL) FREE($group$->$group_str$);
@@ -1081,7 +1250,10 @@ trexio_s3_has_$group_str$ (trexio_t* const file)
 
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
 
-  $group$_t* const $group$ = trexio_s3_read_$group$((trexio_s3_t*) file);
+  trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if (s3_file == NULL) return TREXIO_INVALID_ARG_1;
+
+  $group$_t* const $group$ = trexio_s3_read_$group$(s3_file);
   if ($group$ == NULL) return TREXIO_FAILURE;
 
   if ($group$->len_$group_str$ > 0){
@@ -1177,7 +1349,7 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
        $group_dset_sparse_indices_printf$,
        ,*(value_sparse + i));
     if (rc <= 0) {
-      fclose(f);
+      FREE(f);
       return TREXIO_FAILURE;
     }
   }
@@ -1215,6 +1387,7 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
            TREXIO_MAX_FILENAME_LENGTH-strlen($group$_file_name));
 
   bool file_exists = trexio_s3_file_exists(file_full_path);
+//  bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
 
   /* Create an empty file for the trexio_s3_has_group to work */
   if (!file_exists) {
@@ -1595,6 +1768,7 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
   strncat (file_full_path, group_file_name, TREXIO_MAX_FILENAME_LENGTH - sizeof(group_file_name));
 
   bool file_exists = trexio_s3_file_exists(file_full_path);
+ // bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
 
   /* Create an empty file for the trexio_s3_has_group to work */
   if (!file_exists) {
@@ -1823,6 +1997,7 @@ trexio_exit_code trexio_s3_write_determinant_list(trexio_t* const file,
            TREXIO_MAX_FILENAME_LENGTH-strlen(det_file_name));
 
   bool file_exists = trexio_s3_file_exists(file_full_path);
+//  bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
 
   /* Create an empty file for the trexio_s3_has_group to work */
   if (!file_exists) {
