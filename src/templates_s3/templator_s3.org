@@ -45,6 +45,8 @@
 #ifndef TREXIO_S3_H
 #define TREXIO_S3_H
 
+#include <trexio_s3_rust.h>
+
 #include "trexio.h"
 #include "trexio_private.h"
 #include "trexio_s.h"
@@ -117,23 +119,6 @@ trexio_exit_code trexio_s3_init(trexio_t* const file);
 trexio_exit_code trexio_s3_inquire(const char* file_name);
 trexio_exit_code trexio_s3_deinit(trexio_t* const file);
 trexio_exit_code trexio_s3_flush(trexio_t* const file);
-bool trexio_s3_file_exists(const char* file_name);
-//bool trexio_s3_file_exists(trexio_s3_client* client, const char* file_name);
-    #+end_src
-
-    #+begin_src c :tangle basic_s3.c
-bool
-//trexio_s3_file_exists (trexio_s3_client* client, const char* file_name)
-trexio_s3_file_exists (const char* file_name)
-{
-  /* Check if the client and the file with "file_name" exists*/
-/*        if(client==NULL || file_name==NULL){
-                return false;  //Défense contre les pointeurs NULL
-        }
-        int32_t exists=s3_file_exists(client, file_name, strlen(file_name));
-        return exists==0;
-*/
-}
     #+end_src
 
     #+begin_src c :tangle basic_s3.c
@@ -149,9 +134,9 @@ trexio_s3_inquire (const char* file_name)
       if(client==NULL){
         return TREXIO_FAILURE; //Connexion echec
       }
-//!!      bool file_exists = trexio_s3_file_exists(client, file_name);
+      int file_exists = s3_file_exists(client, file_name, strlen(file_name));
       s3_disconnect(client);
-//!!      return file_exists ? TREXIO_SUCCESS : TREXIO_FAILURE;
+      return file_exists == 0 ? TREXIO_SUCCESS : TREXIO_FAILURE;
 
 }
     #+end_src
@@ -170,9 +155,10 @@ trexio_s3_init (trexio_t* const file)
  f->client=s3_connect();
   if(f->client==NULL) return TREXIO_FAILURE;
 
+  const char* file_name = file->file_name;
   /* Check if the file (prefix) exists in the S3 bucket */
-  bool exist;
-  exist = s3_file_exists(f->client, file->file_name, strlen(file->file_name));
+  int exist;
+  exist = s3_file_exists(f->client, file_name, strlen(file_name));
 
  /* If file does not exist - create it in write mode */
   if(!exist && file->mode == 'r') {
@@ -181,6 +167,7 @@ trexio_s3_init (trexio_t* const file)
      }
 //si le mode est écriture, on peut continuer (création différée)
   return TREXIO_SUCCESS;
+  fprintf(stderr, "[TREXIO_S3]%s:initialisation\n", __func__);
 }
     #+end_src
 
@@ -244,6 +231,7 @@ trexio_s3_flush (trexio_t* const file)
   trexio_exit_code rc;
   rc = trexio_s3_flush_$group$(f);   //Cette fonction va appeler s3_put()
   if (rc != TREXIO_SUCCESS) return rc;
+  printf("rc:%d (%s)\n",rc, trexio_string_of_error(rc));
 
   return TREXIO_SUCCESS;
 }
@@ -505,12 +493,11 @@ trexio_exit_code trexio_s3_has_$group$(trexio_t* const file);
 trexio_exit_code
 trexio_s3_has_$group$ (trexio_t* const file)
 {
-
   if (file  == NULL) return TREXIO_INVALID_ARG_1;
-
+  trexio_s3_t* s3_file=(trexio_s3_t*)file;
   /* Flush the group to make sure the group.txt file is created */
   if (file->mode != 'r') {
-    trexio_exit_code rc = trexio_s3_flush_$group$((trexio_s3_t*) file);
+    trexio_exit_code rc = trexio_s3_flush_$group$(s3_file);
     if (rc != TREXIO_SUCCESS) return TREXIO_FAILURE;
   }
 
@@ -526,11 +513,10 @@ trexio_s3_has_$group$ (trexio_t* const file)
 
   if ($group$_full_path[TREXIO_MAX_FILENAME_LENGTH-1] != '\0') return TREXIO_FAILURE;
 
-  bool file_exists;
-//  file_exists = trexio_s3_file_exists(file->client, $group$_full_path);
-  file_exists = trexio_s3_file_exists($group$_full_path);
+  int file_exists;
+  file_exists = s3_file_exists(s3_file->client, $group$_full_path, strlen($group$_full_path));
 
-  if (file_exists) {
+  if (file_exists==0) {
     return TREXIO_SUCCESS;
   } else {
     return TREXIO_HAS_NOT;
@@ -753,7 +739,8 @@ trexio_s3_flush_$group$ (trexio_s3_t* const file)
         buffer_size += line_len;
 
 //=== Upload final vers S3 ===
-  int rc=s3_put(file->client, s3_path, buffer, buffer_size);
+  printf("s3_path:%s, buffer:%s, buffer_size:%ld\n",s3_path, buffer, buffer_size);
+  int rc=s3_put(file->client, s3_path, strlen(s3_path), buffer, buffer_size);
   FREE(buffer);
  if(rc!=0) return TREXIO_FAILURE;
   $group$->to_flush = 0;
@@ -1292,6 +1279,8 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
                                                 const double* value_sparse)
 {
   if (file == NULL) return TREXIO_INVALID_ARG_1;
+trexio_s3_t* s3_file=(trexio_s3_t*) file;
+  if (s3_file == NULL) return TREXIO_INVALID_ARG_1;
 
   /* Build the name of the file with sparse data*/
   /* The $group_dset$.txt is limited to 256 symbols for the moment. What are the chances that it will exceed? */
@@ -1386,11 +1375,9 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
   strncat (file_full_path, $group$_file_name,
            TREXIO_MAX_FILENAME_LENGTH-strlen($group$_file_name));
 
-  bool file_exists = trexio_s3_file_exists(file_full_path);
-//  bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
-
+  int file_exists = s3_file_exists(s3_file->client,file_full_path, strlen(file_full_path));
   /* Create an empty file for the trexio_s3_has_group to work */
-  if (!file_exists) {
+  if (file_exists!=0) {
     FILE *fp = fopen(file_full_path, "ab+");
     fclose(fp);
   }
@@ -1766,12 +1753,11 @@ trexio_exit_code trexio_s3_write_$group_dset$(trexio_t* const file,
   file_full_path[TREXIO_MAX_FILENAME_LENGTH-1] = '\0';
   /* Append name of the file with sparse data */
   strncat (file_full_path, group_file_name, TREXIO_MAX_FILENAME_LENGTH - sizeof(group_file_name));
-
-  bool file_exists = trexio_s3_file_exists(file_full_path);
- // bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
+  trexio_s3_t* const s3_file = (trexio_s3_t*) file;
+  int file_exists = s3_file_exists(s3_file->client, file_full_path, strlen(file_full_path));
 
   /* Create an empty file for the trexio_s3_has_group to work */
-  if (!file_exists) {
+  if (file_exists!=0) {
     FILE *fp = fopen(file_full_path, "ab+");
     fclose(fp);
   }
@@ -1996,11 +1982,12 @@ trexio_exit_code trexio_s3_write_determinant_list(trexio_t* const file,
   strncat (file_full_path, det_file_name,
            TREXIO_MAX_FILENAME_LENGTH-strlen(det_file_name));
 
-  bool file_exists = trexio_s3_file_exists(file_full_path);
-//  bool file_exists = trexio_s3_file_exists(file->client, file_full_path);
+   trexio_s3_t* const s3_file = (trexio_s3_t*) file;
+   void* client = s3_file->client;
+   int file_exists = s3_file_exists(client, file_full_path, strlen(file_full_path));
 
   /* Create an empty file for the trexio_s3_has_group to work */
-  if (!file_exists) {
+  if (file_exists!=0) {
     FILE *fp = fopen(file_full_path, "ab+");
     fclose(fp);
   }
