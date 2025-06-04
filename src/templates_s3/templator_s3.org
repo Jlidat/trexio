@@ -166,8 +166,8 @@ trexio_s3_init (trexio_t* const file)
         return TREXIO_OPEN_ERROR;
      }
 //si le mode est écriture, on peut continuer (création différée)
-  return TREXIO_SUCCESS;
   fprintf(stderr, "[TREXIO_S3]%s:initialisation\n", __func__);
+  return TREXIO_SUCCESS;
 }
     #+end_src
 
@@ -558,6 +558,7 @@ trexio_s3_flush_$group$ (trexio_s3_t* const file)
   strncat(s3_path, suffix, TREXIO_MAX_FILENAME_LENGTH - strlen(s3_path) - 1);
 
   if(s3_path[TREXIO_MAX_FILENAME_LENGTH -1]!='\0') return TREXIO_FAILURE;
+
 //=== Initialisation du buffer dynamique ===
   size_t buffer_init=4096;
   size_t buffer_size=0;
@@ -707,36 +708,37 @@ trexio_s3_flush_$group$ (trexio_s3_t* const file)
   snprintf(line, sizeof(line), "$group_dset$\n");
   for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
     snprintf(line, sizeof(line), "%$group_dset_format_printf$\n", $group$->$group_dset$[i]);
-   line_len=strlen(line);
+    line_len=strlen(line);
     // === Réallocation si nécessaire ===
     while(buffer_size + line_len >= buffer_init){
-        buffer_init *=2;
-        char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
-        if(!new_buffer){
-                FREE(buffer);
-                return TREXIO_FAILURE;
-        }
-        buffer=new_buffer;
+      buffer_init *=2;
+      char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+      if(!new_buffer){
+        FREE(buffer);
+        return TREXIO_FAILURE;
+      }
+      buffer=new_buffer;
     }
-        memcpy(buffer+buffer_size, line, line_len);
-        buffer_size += line_len;
+    memcpy(buffer+buffer_size, line, line_len);
+    buffer_size += line_len;
   }
   // END REPEAT GROUP_DSET_ALL
+
 //=== Fin du fichier ==
   snprintf(line, sizeof(line), "EXIT\n");
-  line_len=strlen(line);
-        // === Réallocation si nécessaire ===
-        while(buffer_size + line_len >= buffer_init){
-                buffer_init *=2;
-                char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
-                if(!new_buffer){
-                        FREE(buffer);
-                        return TREXIO_FAILURE;
-                }
-                buffer=new_buffer;
-        }
-        memcpy(buffer+buffer_size, line, line_len);
-        buffer_size += line_len;
+  line_len=strlen(line)+1;  // +1 to include terminating '\0'
+  // === Réallocation si nécessaire ===
+  while(buffer_size + line_len >= buffer_init){
+    buffer_init *=2;
+    char* new_buffer=realloc(buffer, buffer_init*sizeof(char));
+    if(!new_buffer){
+      FREE(buffer);
+      return TREXIO_FAILURE;
+    }
+    buffer=new_buffer;
+  }
+  memcpy(buffer+buffer_size, line, line_len);
+  buffer_size += line_len;
 
 //=== Upload final vers S3 ===
   printf("s3_path:%s, buffer:%s, buffer_size:%ld\n",s3_path, buffer, buffer_size);
