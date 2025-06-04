@@ -1358,6 +1358,7 @@ trexio_open(const char* file_name, const char mode,
     return NULL;
 #endif
 
+  case TREXIO_S3:
 #ifdef HAVE_S3
     result_tmp = malloc(sizeof(trexio_s3_t));
     break;
@@ -1422,6 +1423,8 @@ trexio_open(const char* file_name, const char mode,
     free(result);
     return NULL;
 #endif
+
+  case TREXIO_S3:
 #ifdef HAVE_S3
     rc = trexio_s3_init(result);
     break;
@@ -1463,6 +1466,8 @@ trexio_open(const char* file_name, const char mode,
     free(result);
     return NULL;
 #endif
+
+  case TREXIO_S3:
 #ifdef HAVE_S3
     rc = TREXIO_SUCCESS;
     break;

@@ -10,7 +10,7 @@ Version: @PACKAGE_VERSION@
 Cflags:  -I${includedir}
 Libs: -L${libdir} -ltrexio
 Libs.private: @LIBS@
-Requires: @PKG_HDF5@
-Requires.private: @PKG_HDF5@
+Requires: @PKG_HDF5@ @PKG_S3@
+Requires.private: @PKG_HDF5@ @PKG_S3@
 
 

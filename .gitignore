@@ -40,4 +40,9 @@ trexio-*.tar.gz
 trex.json
 *~
 .*.swp
+*.c
+*.html
+*replace_text_s3*
+*_init*
+*.trexio
 /build*

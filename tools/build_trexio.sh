@@ -59,7 +59,6 @@ for B in $BACKENDS ; do
   rm -f -- templates_$B/populated/*
 done
 
-# Produce source files for front end
 echo "tangle org files to generate templates"
 cd templates_front
 tangle templator_front.org

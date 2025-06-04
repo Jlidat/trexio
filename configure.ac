@@ -131,7 +131,7 @@ AC_ARG_WITH([hdf5],
   AS_HELP_STRING([--with-hdf5=PATH], [Path to HDF5 library and headers]), [
   with_hdf5="$withval"], [with_hdf5="yes"])
 
-AS_IF([test "x$with_hdf5" == "xno"], [],
+AS_IF([test "x$with_hdf5" = "xno"], [],
       [test "x$with_hdf5" != "xyes"], [
            HDF5_LIBS="-lhdf5"
            HDF5_PATH="$with_hdf5"
@@ -198,16 +198,6 @@ AS_IF([test "x$with_hdf5" == "xno"], [],
 
 AM_CONDITIONAL([HAVE_HDF5],[test "x$with_hdf5" != "xno"])
 
-AC_ARG_WITH([s3],
-	    AS_HELP_STRING([--with-s3], [Compile with S3 backend]), [
-			    with_s3="$withval"], [with_s3="no"])
-AS_IF([test "x$with_s3"== "xno"],[],
-      [test "x$with_s3" == "xyes"], [
-           AC_DEFINE([HAVE_S3], 1, [Define to 1 if S3 is activated]) ])
-
-AM_CONDITIONAL([HAVE_S3],[test "x$with_s3" != "xno"])
-
-
 AC_SUBST([PKG_HDF5])
 AC_SUBST([HDF5_LDFLAGS])
 AC_SUBST([HDF5_LIBS])
@@ -221,7 +211,7 @@ LIBS="${HDF5_LIBS} ${LIBS}"
 AS_IF([test "x$with_hdf5" != "xno"], [
   OLD_LIBS=$LIBS
   AC_CHECK_LIB([hdf5], [H5Fcreate], [], [
-    AC_MSG_ERROR([-lhdf5 fails, use ./configure --with-hdf5=... OR check your $LIBRARY_PATH]) ])
+    AC_MSG_ERROR([-lhdf5 fails, use ./configure --with-hdf5=... OR check \$LIBRARY_PATH]) ])
   AC_CHECK_HEADER([hdf5.h], [], [
     AC_MSG_ERROR([hdf5.h not found, use ./configure --with-hdf5=...]) ])
   LIBS=$OLD_LIBS
@@ -234,6 +224,63 @@ AS_IF([test "x$with_hdf5" != "xno"], [
 #  AC_SUBST([HDF5_CFLAGS])
 #  AC_SUBST([HDF5_LDFLAGS])
 #fi
+
+
+### S3
+### --
+
+PKG_S3=""
+S3_LIBS=""
+S3_LDFLAGS=""
+S3_CFLAGS=""
+S3_CPPFLAGS=""
+AC_ARG_WITH([s3],
+	    AS_HELP_STRING([--with-s3], [Compile with S3 backend]), [
+			    with_s3="$withval"], [with_s3="no"])
+
+AS_IF([test "x$with_s3" = "xno"],
+      [],  # S3 explicitly disabled; do nothing
+      [test "x$with_s3" = "xyes"],
+      [
+        # Auto-detect with pkg-config
+        PKG_CHECK_EXISTS([trexio_s3],
+                         [PKG_CHECK_MODULES([S3], [trexio_s3])
+                          PKG_S3="trexio_s3"],
+                         [AC_MSG_ERROR([trexio_s3 requested but not found])])
+        AC_DEFINE([HAVE_S3], 1, [Define to 1 if S3 is activated])
+      ],
+      [
+        # User-specified non-boolean path to S3 library
+        S3_LIBS="-ltrexio_s3"
+        S3_PATH="$with_s3"
+        S3_LDFLAGS="-L$S3_PATH/lib"
+        S3_CPPFLAGS="-I$S3_PATH/include"
+        AC_DEFINE([HAVE_S3], 1, [Define to 1 if S3 is activated])
+      ])
+
+AM_CONDITIONAL([HAVE_S3],[test "x$with_s3" != "xno"])
+
+AC_SUBST([PKG_S3])
+AC_SUBST([S3_LDFLAGS])
+AC_SUBST([S3_LIBS])
+AC_SUBST([S3_CFLAGS])
+AC_SUBST([S3_CPPFLAGS])
+CPPFLAGS="${S3_CPPFLAGS} ${CPPFLAGS}"
+CFLAGS="${S3_CFLAGS} ${CFLAGS}"
+LDFLAGS="${S3_LDFLAGS} ${LDFLAGS}"
+LIBS="${S3_LIBS} ${LIBS}"
+
+
+AS_IF([test "x$with_s3" != "xno"], [
+  OLD_LIBS=$LIBS
+  AC_CHECK_LIB([trexio_s3], [s3_connect], [], [
+    AC_MSG_ERROR([-ltrexio_s3 fails, use ./configure --with-s3=... OR check \$LIBRARY_PATH]) ])
+  AC_CHECK_HEADER([trexio_s3_rust.h], [], [
+    AC_MSG_ERROR([trexio_s3_rust.h not found, use ./configure --with-s3=...]) ])
+  LIBS=$OLD_LIBS
+])
+
+
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_INT32_T
@@ -249,7 +296,7 @@ AC_C_INLINE
 # AC_FUNC_MALLOC
 AC_CHECK_FUNCS([memset mkdir strerror])
 
-if test "x$enable_maintainer_mode" == "xyes"; then
+if test "x$enable_maintainer_mode" = "xyes"; then
   TREXIO_DEVEL=" -- Developer mode"
 else
   TREXIO_DEVEL=""
@@ -288,7 +335,7 @@ if test "x${TREXIO_DEVEL}" != "x"; then
   #AX_SWIG_PYTHON
 
   AC_CHECK_PROGS([EMACS],[emacs26 emacs],[no])
-  if test x${EMACS} == xno ; then
+  if test x${EMACS} = "xno" ; then
     AC_MSG_ERROR([
     --------------------------------------
     Error: Emacs is required for org-mode.
@@ -357,8 +404,7 @@ LDFLAGS .......:  ${LDFLAGS}
 LIBS ..........:  ${LIBS}
 
 Package features:
-  Compilation with HDF5 ..:  ${with_hdf5}
-  HDF5 version ...........:  ${HDF5_VERSION}
+  Compilation with HDF5 ..:  ${with_hdf5}    # ${HDF5_VERSION}
   Compilation with S3 ....:  ${with_s3}
 
 Now type 'make @<:@<target>@:>@'

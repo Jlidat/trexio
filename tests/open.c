@@ -145,6 +145,7 @@ int main(void) {
 
   int rc;
   rc = system(RM_COMMAND);
+  printf(RM_COMMAND "\n%d\n", rc);
   assert (rc == 0);
 
   test_open_w     (TREXIO_FILE, TEST_BACKEND);
