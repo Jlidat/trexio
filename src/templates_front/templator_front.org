@@ -945,8 +945,7 @@ def string_of_error(return_code: int) -> str:
 
    Additional back ends can be implemented thanks to the modular nature of the front end.
    This can be achieved by adding a new ~case~ (corresponding to the desired back end) in the front-end ~switch~.
-   Then the corresponding back-end ~has/read/write~ functions has to be implemented. For example, see the commented
-   lines that correspond to the ~TREXIO_JSON~ back end (not implemented yet).
+   Then the corresponding back-end ~has/read/write~ functions has to be implemented.
 
    _Note_: It is important to increment the value of ~TREXIO_INVALID_BACK_END~ when a new back end is implemented. Otherwise, it will not be available.
 
@@ -960,7 +959,6 @@ typedef int32_t back_end_t;
 #define TREXIO_S3               ( (back_end_t) 2 )
 #define TREXIO_INVALID_BACK_END ( (back_end_t) 3 )
 #define TREXIO_AUTO             TREXIO_INVALID_BACK_END
-/*#define TREXIO_JSON             ( (back_end_t) 2 )*/
 
 #define TREXIO_DELIM            "\n"
    #+end_src
@@ -1004,7 +1002,6 @@ bool trexio_has_backend(back_end_t back_end) {
   integer(trexio_back_end_t), parameter :: TREXIO_HDF5 = 0
   integer(trexio_back_end_t), parameter :: TREXIO_TEXT = 1
   integer(trexio_back_end_t), parameter :: TREXIO_S3 = 2
-! integer(trexio_back_end_t), parameter :: TREXIO_JSON = 2
   integer(trexio_back_end_t), parameter :: TREXIO_INVALID_BACK_END = 3
   integer(trexio_back_end_t), parameter :: TREXIO_AUTO = TREXIO_INVALID_BACK_END
   #+end_src
@@ -1036,8 +1033,7 @@ end interface
 # define TREXIO back ends
 TREXIO_HDF5 = 0
 TREXIO_TEXT = 1
-TREXIO_TEXT = 2 
-#TREXIO_JSON = 2
+TREXIO_S3 = 2 
 TREXIO_INVALID_BACK_END = 3
 TREXIO_AUTO = TREXIO_INVALID_BACK_END
   #+end_src
@@ -1288,56 +1284,36 @@ trexio_open(const char* file_name, const char mode,
   }
 
   back_end_t back_end_local = back_end;
+  trexio_exit_code rc = TREXIO_FAILURE;
+  
   /* Try to determine the applicable backend if the back_end argument is TREXIO_AUTO */
   if (back_end == TREXIO_AUTO && mode == 'r') {
-#ifdef HAVE_HDF5
     /* Check if the TREXIO file exists and if it is a directory */
-    trexio_exit_code rc_text = trexio_text_inquire(file_name);
-    if (rc_text == TREXIO_SUCCESS) {
+    rc = trexio_text_inquire(file_name);
+    if (rc == TREXIO_SUCCESS) {
       back_end_local = TREXIO_TEXT;
-    } else {
-    /* If not, check if it is an HDF5 file */
-      trexio_exit_code rc_hdf5 = trexio_hdf5_inquire(file_name);
-      if (rc_hdf5 == TREXIO_SUCCESS) {
-        back_end_local = TREXIO_HDF5;
-	} else {
-    /* If not, check if it is an S3 file */
-#ifdef HAVE_S3
-      trexio_exit_code rc_s3 = trexio_s3_inquire(file_name);
-      if (rc_s3 == TREXIO_SUCCESS) {
-        back_end_local = TREXIO_S3;
-      } else {
-	if (rc_open != NULL) *rc_open=TREXIO_FILE_ERROR;
-	return NULL;
-	}
-#else
-    /* File is neither a directory nor an HDF5 file nor S3 file -> return an error */
-        if (rc_open != NULL) *rc_open = TREXIO_FILE_ERROR;
-        return NULL;
-#endif
-      }
     }
-#else
-    /* In the current implementation if HDF5 back end is not available - then there is two backs end left */
-#ifdef HAVE_S3
-    trexio_exit_code rc_text=trexio_text_inquire(file_name);
-    if ( rc_text == TREXIO_SUCCESS){
-        back_end_local = TREXIO_TEXT;
-    }else {
-        trexio_exit_code rc_3=trexio_s3_inquire(file_name);
-        if ( rc_s3 == TREXIO_SUCCESS){
-            back_end_local=TREXIO_S3;
-        } else {
-            if (rc_open != NULL)*rc_open=TREXIO_FILE_ERROR;
-            return NULL;
-        }
-    }
-#else
-    /* In the current implementation if HDF5 back end is not available - then there is only back end left */
-    back_end_local = TREXIO_TEXT;
-#endif
-#endif
   }
+
+#ifdef HAVE_HDF5
+  if (back_end_local == TREXIO_AUTO && mode == 'r') {
+    /* Check if the TREXIO file is an HDF5 file */
+    rc = trexio_hdf5_inquire(file_name);
+    if (rc == TREXIO_SUCCESS) {
+      back_end_local = TREXIO_HDF5;
+    }
+  }
+#endif
+  
+#ifdef HAVE_S3
+  if (back_end_local == TREXIO_AUTO && mode == 'r') {
+    /* Check if the TREXIO file is an S3 file */
+    rc = trexio_s3_inquire(file_name);
+    if (rc == TREXIO_SUCCESS) {
+      back_end_local = TREXIO_S3;
+    }
+  }
+#endif
 
   trexio_t* result = NULL;
   void* result_tmp = NULL;
@@ -1349,32 +1325,22 @@ trexio_open(const char* file_name, const char mode,
     result_tmp = malloc(sizeof(trexio_text_t));
     break;
 
-  case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+  case TREXIO_HDF5:
     result_tmp = malloc(sizeof(trexio_hdf5_t));
     break;
-#else
-    if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-    return NULL;
 #endif
 
-  case TREXIO_S3:
 #ifdef HAVE_S3
+  case TREXIO_S3:
     result_tmp = malloc(sizeof(trexio_s3_t));
     break;
-#else
-    if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-    return NULL;
 #endif
+
   default:
     if (rc_open != NULL) *rc_open = TREXIO_FILE_ERROR;
     return NULL;
 
-/*
-  case TREXIO_JSON:
-    result = (trexio_t*) malloc (sizeof(trexio_json_t));
-    break;
-,*/
   }
   result = (trexio_t*) result_tmp;
 
@@ -1406,7 +1372,7 @@ trexio_open(const char* file_name, const char mode,
 
   /* Back end initialization */
 
-  trexio_exit_code rc = TREXIO_OPEN_ERROR;
+  rc = TREXIO_OPEN_ERROR;
 
   switch (back_end_local) {
 
@@ -1414,30 +1380,22 @@ trexio_open(const char* file_name, const char mode,
     rc = trexio_text_init(result);
     break;
 
-  case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+  case TREXIO_HDF5:
     rc = trexio_hdf5_init(result);
     break;
-#else
-    if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-    free(result);
-    return NULL;
 #endif
 
-  case TREXIO_S3:
 #ifdef HAVE_S3
+  case TREXIO_S3:
     rc = trexio_s3_init(result);
     break;
-#else
+#endif
+
+  default:
     if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
     free(result);
     return NULL;
-#endif
-/*
-  case TREXIO_JSON:
-    rc = trexio_json_init(result);
-    break;
-,*/
   }
 
   if (rc != TREXIO_SUCCESS) {
@@ -1456,32 +1414,24 @@ trexio_open(const char* file_name, const char mode,
   case TREXIO_TEXT:
     rc = trexio_text_lock(result);
     break;
-  /* HDF5 v.>=1.10 has file locking activated by default */
-  case TREXIO_HDF5:
+
 #ifdef HAVE_HDF5
+  case TREXIO_HDF5:
     rc = TREXIO_SUCCESS;
     break;
-#else
-    if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-    free(result);
-    return NULL;
 #endif
 
-  case TREXIO_S3:
 #ifdef HAVE_S3
+  case TREXIO_S3:
     rc = TREXIO_SUCCESS;
     break;
-#else
+#endif
+    
+  default:
     if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
     free(result);
     return NULL;
-#endif
 
-/*
-  case TREXIO_JSON:
-    rc = trexio_json_lock(result);
-    break;
-,*/
   }
 
   if (rc != TREXIO_SUCCESS) {
@@ -1506,24 +1456,22 @@ trexio_open(const char* file_name, const char mode,
       rc = trexio_text_write_metadata_package_version(result, TREXIO_PACKAGE_VERSION);
       break;
 
-    case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+    case TREXIO_HDF5:
       rc = trexio_hdf5_write_metadata_package_version(result, TREXIO_PACKAGE_VERSION);
       break;
-#else
-      if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-      free(result);
-      return NULL;
 #endif
-    case TREXIO_S3:
+
 #ifdef HAVE_S3
+    case TREXIO_S3:
       rc = trexio_s3_write_metadata_package_version(result, TREXIO_PACKAGE_VERSION);
       break;
-#else
+#endif
+
+    default:
       if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
       free(result);
       return NULL;
-#endif
     }
 
     if (rc != TREXIO_SUCCESS) {
@@ -1547,25 +1495,22 @@ trexio_open(const char* file_name, const char mode,
       rc = trexio_text_read_metadata_package_version(result, version_origin, 16);
       break;
 
-    case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+    case TREXIO_HDF5:
       rc = trexio_hdf5_read_metadata_package_version(result, version_origin, 16);
       break;
-#else
-      if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
-      free(result);
-      return NULL;
 #endif
 
-    case TREXIO_S3:
 #ifdef HAVE_S3
+    case TREXIO_S3:
       rc = trexio_s3_read_metadata_package_version(result, version_origin, 16);
       break;
-#else
+#endif
+
+    default:
       if (rc_open != NULL) *rc_open = TREXIO_BACK_END_MISSING;
       free(result);
       return NULL;
-#endif
     }
 
     if (rc != TREXIO_SUCCESS) {
