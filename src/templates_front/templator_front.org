@@ -1442,6 +1442,7 @@ trexio_open(const char* file_name, const char mode,
 
   /* Write metadata (i.e. package version) upon creation */
   rc = trexio_has_metadata_package_version(result);
+printf("-front-code_rc_has_metadata_package_version=%d\n",rc);///////////
   if (rc == TREXIO_FAILURE) {
     if (rc_open != NULL) *rc_open = TREXIO_OPEN_ERROR;
     free(result);
@@ -1475,6 +1476,7 @@ trexio_open(const char* file_name, const char mode,
     }
 
     if (rc != TREXIO_SUCCESS) {
+printf("-front- PROBLEME : trexio_s3_write_metadata_package_version\n");
       if (rc_open != NULL) *rc_open = rc;
       free(result);
       return NULL;

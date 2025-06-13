@@ -17,9 +17,18 @@ static int test_open_w (const char* file_name, const back_end_t backend) {
 
   // open file in 'write' mode
   file = trexio_open(file_name, 'w', backend, &rc);
-  assert (rc == TREXIO_SUCCESS);
+  assert (rc == TREXIO_SUCCESS);///c'est ok!!!!
+ if(rc != TREXIO_SUCCESS){
+    fprintf(stderr, "ERROR: trexio_open (read) failed with rc = %d (%s)\n", rc, trexio_string_of_error(rc));
+    exit(EXIT_FAILURE);
+  }
   assert (file != NULL);
-
+  rc = trexio_write_nucleus_num(file, 1);  // c'est ok!
+  assert (rc == TREXIO_SUCCESS);//!
+  if (rc != TREXIO_SUCCESS) {//!
+    fprintf(stderr, "ERROR: trexio_write_nucleus_num failed with rc = %d (%s)\n",rc, trexio_string_of_error(rc));//!
+    exit(EXIT_FAILURE);//!
+  }//!
   // close current session
   rc = trexio_close(file);
   assert (rc == TREXIO_SUCCESS);
@@ -39,7 +48,7 @@ static int test_open_r (const char* file_name, const back_end_t backend) {
 
 /*================= START OF TEST ==================*/
 
-  // open file in 'write' mode
+  // open file in 'read' mode
   file = trexio_open(file_name, 'r', backend, &rc);
   assert (rc == TREXIO_SUCCESS);
   assert (file != NULL);
@@ -63,7 +72,7 @@ static int test_open_auto (const char* file_name) {
 
 /*================= START OF TEST ==================*/
 
-  // open file in 'write' mode
+  // open file in 'read'  mode (AUTO)
   file = trexio_open(file_name, 'r', TREXIO_AUTO, &rc);
   assert (rc == TREXIO_SUCCESS);
   assert (file != NULL);
