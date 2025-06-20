@@ -1442,7 +1442,7 @@ trexio_open(const char* file_name, const char mode,
 
   /* Write metadata (i.e. package version) upon creation */
   rc = trexio_has_metadata_package_version(result);
-printf("-front-code_rc_has_metadata_package_version=%d\n",rc);///////////
+//printf("-front-code_rc_has_metadata_package_version=%d\n",rc);///////////
   if (rc == TREXIO_FAILURE) {
     if (rc_open != NULL) *rc_open = TREXIO_OPEN_ERROR;
     free(result);
@@ -1944,28 +1944,24 @@ trexio_inquire (const char* file_name)
   if (file_name == NULL || file_name[0] == '\0') return TREXIO_INVALID_ARG_1;
 
   /* First check if the TREXIO file exists and if it is a directory */
-  trexio_exit_code rc_text = trexio_text_inquire(file_name);
-#if defined(HAVE_HDF5) || defined(HAVE_S3)
- /*If it's not a valid TEXT file, continue testing the other backends */
-  if(rc_text == TREXIO_FILE_ERROR){
+  trexio_exit_code rc = trexio_text_inquire(file_name);
+  if (rc == TREXIO_SUCCESS) return rc;
+
 #ifdef HAVE_HDF5
   /* FILE_ERROR here means that the file exists but it is not a directory -> check with HDF5 */
-  trexio_exit_code rc_hdf5 = trexio_hdf5_inquire(file_name);
-  if(rc_hdf5==TREXIO_SUCCESS) return rc_hdf5;
-#endif
-#ifdef HAVE_S3
-  trexio_exit_code rc_s3=trexio_s3_inquire(file_name);
-  if(rc_s3==TREXIO_SUCCESS) return rc_s3;
-#endif
-    return TREXIO_FILE_ERROR;
-  /* If rc_text is TREXIO_SUCCESS -> file is a TREXIO directory; TREXIO_FAILURE -> file/directory does not exist */
-  } else {
-    return rc_text;
+  if (rc == TREXIO_FILE_ERROR) {
+    rc = trexio_hdf5_inquire(file_name);
+    if (rc == TREXIO_SUCCESS) return rc;
   }
-#else
-/*If neither HDF5 nor S3 is compiled, return what TEXT returns */
-  return rc_text;
 #endif
+
+#ifdef HAVE_S3
+  /* FILE_ERROR here means that the file exists but it is not a directory -> check with HDF5 */
+  rc = trexio_s3_inquire(file_name);
+  if (rc == TREXIO_SUCCESS) return rc;
+#endif
+
+  return rc;
 }
     #+end_src
 
@@ -3508,22 +3504,18 @@ trexio_has_$group_dset$ (trexio_t* const file)
   case TREXIO_TEXT:
     return trexio_text_has_$group_dset$(file);
 
-  case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+  case TREXIO_HDF5:
     return trexio_hdf5_has_$group_dset$(file);
-#else
-    return TREXIO_BACK_END_MISSING;
 #endif
-  case TREXIO_S3:
+
 #ifdef HAVE_S3
+  case TREXIO_S3:
     return trexio_s3_has_$group_dset$(file);
-#else
-    return TREXIO_BACK_END_MISSING;
 #endif
-/*
-  case TREXIO_JSON:
-    return trexio_json_has_$group_dset$(file);
-,*/
+
+  default:
+    return TREXIO_BACK_END_MISSING;
   }
   return TREXIO_FAILURE;
 }
@@ -4766,24 +4758,19 @@ trexio_has_$group_dset$ (trexio_t* const file)
   case TREXIO_TEXT:
     return trexio_text_has_$group_dset$(file);
 
-  case TREXIO_HDF5:
 #ifdef HAVE_HDF5
+  case TREXIO_HDF5:
     return trexio_hdf5_has_$group_dset$(file);
-#else
-    return TREXIO_BACK_END_MISSING;
-#endif
- case TREXIO_S3:
-#ifdef HAVE_S3
-    return trexio_s3_has_$group_dset$(file);
-#else
-    return TREXIO_BACK_END_MISSING;
 #endif
 
-/*
-  case TREXIO_JSON:
-    return trexio_json_has_$group_dset$(file);
-    break;
-,*/
+#ifdef HAVE_S3
+ case TREXIO_S3:
+    return trexio_s3_has_$group_dset$(file);
+#endif
+ 
+  default:
+    return TREXIO_BACK_END_MISSING;
+
   }
 
   return TREXIO_FAILURE;

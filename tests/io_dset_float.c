@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int test_write_dset (const char* file_name, const back_end_t backend) {
 

@@ -27,6 +27,7 @@ static int test_write_dset (const char* file_name, const back_end_t backend) {
 
   // write numerical (integer) dataset in a file
   rc = trexio_write_basis_nucleus_index(file, nucl_index);
+printf("rc de ecriture de basis nucleus index : %d \n", rc);
   assert (rc == TREXIO_SUCCESS);
 
   // write index attribute in a file
@@ -96,23 +97,26 @@ static int test_read_dset (const char* file_name, const back_end_t backend) {
 
 /*================= START OF TEST ==================*/
 
-  // open file in 'read' mode
+  // open file in 'read' mode  => OK
   file = trexio_open(file_name, 'r', backend, &rc);
   assert (file != NULL);
 
-  // read numerical attribute from the file
+  // read numerical attribute from the file  => OK
   rc = trexio_read_basis_shell_num(file, &num);
   assert (rc == TREXIO_SUCCESS);
   assert (num == 12);
 
-  // read index attribute from the file
+  // read index attribute from the file => OK
   rc = trexio_read_state_id(file, &state_id);
   assert (rc == TREXIO_SUCCESS);
   assert (state_id == 2);
 
   // read numerical dataset from the file
   nucl_index = (int*) calloc(num, sizeof(int));
+
+//!!!!!!!!!!!!!!!!!!probleme ici !!!!!!!!!!!!!!!!!!
   rc = trexio_read_basis_nucleus_index(file, nucl_index);
+
   assert (rc == TREXIO_SUCCESS);
   assert (nucl_index[num-1] == num-1);
 
@@ -139,8 +143,10 @@ int main(void) {
   test_write_dset (TREXIO_FILE, TEST_BACKEND);
   test_has_dset   (TREXIO_FILE, TEST_BACKEND);
   test_read_dset  (TREXIO_FILE, TEST_BACKEND);
+printf("test_read_dset ok\n");
 
   rc = system(RM_COMMAND);
+printf("rcsystem=%d\n",rc);
   assert (rc == 0);
 
   return 0;

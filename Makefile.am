@@ -177,6 +177,7 @@ TEST_FILES = \
     tests/io_dset_int.c \
     tests/io_dset_int_hdf5.c \
     tests/io_dset_int_text.c \
+    tests/io_dset_int_s3.c \
     tests/io_dset_sparse.c \
     tests/io_dset_sparse_hdf5.c \
     tests/io_dset_sparse_text.c \
@@ -198,7 +199,6 @@ TEST_FILES = \
     tests/open.c \
     tests/open_hdf5.c \
     tests/open_text.c \
-    tests/open_s3.c \
     tests/overwrite_all.c \
     tests/overwrite_all_hdf5.c \
     tests/overwrite_all_text.c \
@@ -247,19 +247,19 @@ if HAVE_S3
 #TESTS_C += \
 #  tests/open_s3  \
 #  tests/io_num_s3 \
+#  tests/io_str_s3 \
+#  tests/io_dset_str_s3 \
 #  tests/io_dset_float_s3 \
 #  tests/io_dset_int_s3 \
 #  tests/io_dset_sparse_s3 \
 #  tests/io_determinant_s3 \
 #  tests/io_jastrow_s3 \
 #  tests/io_safe_dset_float_s3 \
-#  tests/io_str_s3 \
-#  tests/io_dset_str_s3 \
 #  tests/delete_group_s3 \
 #  tests/overwrite_all_s3
 
 TESTS_C += \
-  tests/open_s3  
+  tests/io_dset_int_s3 
 endif
 
 TESTS = $(TESTS_C)

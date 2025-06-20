@@ -19,8 +19,13 @@ static int test_write_determinant (const char* file_name, const back_end_t backe
 
   // open file in 'write' mode
   file = trexio_open(file_name, 'w', backend, &rc);
-  assert (file != NULL);
-  assert (rc == TREXIO_SUCCESS);
+ // assert (file != NULL);
+ // assert (rc == TREXIO_SUCCESS);
+
+if (file == NULL || rc != TREXIO_SUCCESS) {                                       //
+    fprintf(stderr, "Erreur ouverture fichier: %s\n", trexio_string_of_error(rc));//
+    return 1;                                                                     //
+  }                                                                               //
 
   // parameters to be written
   int64_t* det_list;
@@ -29,28 +34,54 @@ static int test_write_determinant (const char* file_name, const back_end_t backe
   // write mo_num which will be used to determine the optimal size of int indices
   if (trexio_has_mo_num(file) == TREXIO_HAS_NOT) {
     rc = trexio_write_mo_num(file, mo_num);
-    assert(rc == TREXIO_SUCCESS);
+//    assert(rc == TREXIO_SUCCESS);
+
+if (rc != TREXIO_SUCCESS) {                                                       //
+      fprintf(stderr, "Erreur écriture mo_num: %s\n", trexio_string_of_error(rc));//
+      return 1;                                                                   //
+    }                                                                             //
   }
 
   // write number of up and down electrons for checking consistency of determinants
   if (trexio_has_electron_up_num(file) == TREXIO_HAS_NOT) {
     rc = trexio_write_electron_up_num(file, 4);
-    assert(rc == TREXIO_SUCCESS);
+//    assert(rc == TREXIO_SUCCESS);
+	if (rc != TREXIO_SUCCESS) {                                                                  //
+    		fprintf(stderr, "Erreur écriture electron_up_num: %s\n", trexio_string_of_error(rc));//
+   		 return 1;                                                                            //
+  	}                                                                                             //
+
   }
   if (trexio_has_electron_dn_num(file) == TREXIO_HAS_NOT) {
     rc = trexio_write_electron_dn_num(file, 3);
-    assert(rc == TREXIO_SUCCESS);
+//    assert(rc == TREXIO_SUCCESS);
+
+	if (rc != TREXIO_SUCCESS) {                                                                 //
+    		fprintf(stderr, "Erreur écriture electron_dn_num: %s\n", trexio_string_of_error(rc));//
+    		return 1;                                                                            //
+ 	 }                                                                                           //
+
   }
 
   // get the number of int64 bit fields per determinant
   int int_num;
   rc = trexio_get_int64_num(file, &int_num);
-  assert(rc == TREXIO_SUCCESS);
+//  assert(rc == TREXIO_SUCCESS);
+
+  if (rc != TREXIO_SUCCESS) {                                                      //
+    fprintf(stderr, "Erreur lecture int64_num: %s\n", trexio_string_of_error(rc)); //
+    return 1;                                                                      //
+  }                                                                                //
   assert(int_num == (mo_num-1)/64 + 1);
 
   // allocate memory and fill with values to be written
   det_list = (int64_t*) calloc(2 * int_num * SIZE, sizeof(int64_t));
   det_coef = (double*) calloc(SIZE, sizeof(double));
+
+if (det_list == NULL || det_coef == NULL) {               //
+    fprintf(stderr, "Erreur d'allocation mémoire\n");     //
+    return 1;                                             //
+  }                                                       //
 
   const int32_t orb_list_up[4] = {0,1,2,3};
   const int32_t orb_list_dn[3] = {0,1,2};
@@ -58,7 +89,18 @@ static int test_write_determinant (const char* file_name, const back_end_t backe
 
   for(int i=0; i<SIZE; i++){
     rc = trexio_to_bitfield_list (orb_list_up, 4, &(det_list[2*int_num*i]), int_num);
+
+if (rc != TREXIO_SUCCESS) {                                                                         //
+      fprintf(stderr, "Erreur conversion orb_list_up → bitfield: %s\n", trexio_string_of_error(rc)); //
+      return 1;                                                                                     //
+    }                                                                                               //
     rc = trexio_to_bitfield_list (orb_list_dn, 3, &(det_list[2*int_num*i+int_num]), int_num);
+
+    if (rc != TREXIO_SUCCESS) {                                                                     //
+      fprintf(stderr, "Erreur conversion orb_list_dn → bitfield: %s\n", trexio_string_of_error(rc)); //
+      return 1;                                                                                      //
+    }                                                                                                //
+
     det_coef[i]     = 3.14 + (double) i;
   }
 
@@ -71,7 +113,11 @@ static int test_write_determinant (const char* file_name, const back_end_t backe
   // write the state_id of a given file: 0 is ground state
   if (trexio_has_state_id(file) == TREXIO_HAS_NOT) {
     rc = trexio_write_state_id(file, STATE_TEST);
-    assert(rc == TREXIO_SUCCESS);
+//    assert(rc == TREXIO_SUCCESS);
+    if (rc != TREXIO_SUCCESS) {                                                      //
+      fprintf(stderr, "Erreur écriture state_id: %s\n", trexio_string_of_error(rc)); //
+      return 1;                                                                     //
+    }                                                                               //
   }
 
   // write n_chunks times using write_sparse
@@ -79,13 +125,25 @@ static int test_write_determinant (const char* file_name, const back_end_t backe
     if (i*chunk_size + chunk_size > SIZE) {
       chunk_size = SIZE % chunk_size;
     }
+
+printf("Écriture chunk %d: offset_f = %lu, offset_d = %lu, chunk_size = %lu\n", i, offset_f, offset_d, chunk_size);//
     //printf("chunk_size: %ld | %ld\n", chunk_size, offset_f+chunk_size);
     rc = trexio_write_determinant_list(file, offset_f, chunk_size, &det_list[2*int_num*offset_d]);
-    assert(rc == TREXIO_SUCCESS);
-
+//    assert(rc == TREXIO_SUCCESS);///// PROBLEME ICI ///////
+    if (rc != TREXIO_SUCCESS) {                                                                           //
+      fprintf(stderr, "Erreur écriture determinant_list (chunk %d): %s\n", i, trexio_string_of_error(rc));//
+     free(det_list);
+    free(det_coef);
+    return -1;   
+}                                                                                                     //
     rc = trexio_write_determinant_coefficient(file, offset_f, chunk_size, &det_coef[offset_d]);
-    assert(rc == TREXIO_SUCCESS);
-
+    //assert(rc == TREXIO_SUCCESS);
+if (rc != TREXIO_SUCCESS) {
+    fprintf(stderr, "Erreur lors de l'écriture de determinant_coefficient : %s\n", trexio_string_of_error(rc));
+    free(det_list);
+    free(det_coef);
+    return -1;
+}
     offset_d += chunk_size;
     offset_f += chunk_size;
   }

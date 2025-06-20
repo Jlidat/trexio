@@ -43,6 +43,7 @@ static int test_write_dset_str (const char* file_name, const back_end_t backend)
 
   // close current session
   rc = trexio_close(file);
+printf("rc de trexio_close file :%d\n",rc);
   assert (rc == TREXIO_SUCCESS);
 
 /*================= END OF TEST ==================*/
@@ -62,13 +63,14 @@ static int test_has_dset_str (const char* file_name, const back_end_t backend) {
 
   // open file
   file = trexio_open(file_name, 'r', backend, &rc);
+printf("rc de trexio_open : %d\n",rc);
   assert (file != NULL);
   assert (rc == TREXIO_SUCCESS);
 
   // check that the previously written dataset of strings exists
   rc = trexio_has_nucleus_label(file);
   if (rc != TREXIO_SUCCESS) {
-     printf("%s\n", trexio_string_of_error(rc));
+     printf("Erreur détectée dans trexio_has_nucleus_label: %s :%d\n", trexio_string_of_error(rc), rc);
   }
   assert (rc == TREXIO_SUCCESS);
 

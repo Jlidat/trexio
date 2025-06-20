@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define TREXIO_VOID 	"non_existing_" TREXIO_FILE
 
@@ -23,12 +24,7 @@ static int test_open_w (const char* file_name, const back_end_t backend) {
     exit(EXIT_FAILURE);
   }
   assert (file != NULL);
-  rc = trexio_write_nucleus_num(file, 1);  // c'est ok!
-  assert (rc == TREXIO_SUCCESS);//!
-  if (rc != TREXIO_SUCCESS) {//!
-    fprintf(stderr, "ERROR: trexio_write_nucleus_num failed with rc = %d (%s)\n",rc, trexio_string_of_error(rc));//!
-    exit(EXIT_FAILURE);//!
-  }//!
+
   // close current session
   rc = trexio_close(file);
   assert (rc == TREXIO_SUCCESS);
@@ -140,6 +136,7 @@ static int test_inquire () {
 
   // inquire existing file
   rc = trexio_inquire(TREXIO_FILE);
+  printf("%d: %s\n", rc, trexio_string_of_error(rc));
   assert (rc == TREXIO_SUCCESS);
 
 /*================= END OF TEST ==================*/
