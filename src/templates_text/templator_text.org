@@ -473,7 +473,9 @@ trexio_text_read_$group$ (trexio_text_t* const file)
            ,* BUT it's size has to be number_of_str*max_len_str where max_len_str is somewhat arbitrary, e.g. 32.
            ,*/
           char* tmp_$group_dset$;
+          char* tmp_$group_dset$_0;
           tmp_$group_dset$ = CALLOC(size_$group_dset$*32, char);
+          tmp_$group_dset$_0 = tmp_$group_dset$;
 
           for (uint64_t i=0 ; i<size_$group_dset$ ; ++i) {
             $group$->$group_dset$[i] = tmp_$group_dset$;
@@ -482,6 +484,7 @@ trexio_text_read_$group$ (trexio_text_t* const file)
              ,*/
             rc = fscanf(f, " %1023[^\n]", buffer);
             if (rc != 1) {
+              FREE(tmp_$group_dset$_0 );
               trexio_text_free_read_$group$(buffer, f, file, $group$);
               return NULL;
             }
